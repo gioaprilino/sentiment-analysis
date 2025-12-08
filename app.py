@@ -11,6 +11,7 @@ from sklearn.pipeline import Pipeline
 from nltk.corpus import stopwords
 import nltk
 import matplotlib.pyplot as plt
+import requests
 
 # Download stopwords bahasa Indonesia
 nltk.download('stopwords', quiet=True)
@@ -213,5 +214,46 @@ if st.button("🔄 Latih Ulang Model dengan Data Baru"):
             model.fit(X, y)
             joblib.dump(model, MODEL_PATH)
         st.success("✅ Model berhasil dilatih ulang dengan data terbaru!")
+
+def create_github_issue(title, body):
+    url = f"https://api.github.com/repos/{GITHUB_USER}/{REPO_NAME}/issues"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    data = {"title": title, "body": body}
+    response = requests.post(url, json=data, headers=headers)
+    return response.status_code == 201
+
+# Kirim feedback ke GitHub Issue
+if st.button("📤 Kirim Feedback ke GitHub (untuk pelatihan ulang)"):
+    import requests
+    import json
+    GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
+    GITHUB_USER = st.secrets.get("GITHUB_USER", "")
+    REPO_NAME = st.secrets.get("REPO_NAME", "")
+
+    if not all([GITHUB_TOKEN, GITHUB_USER, REPO_NAME]):
+        st.error("GitHub Secrets belum dikonfigurasi.")
+    else:
+        # Ambil data koreksi (misal: dari session state)
+        feedback_lines = []
+        for idx in selected_indices:
+            feedback_lines.append(
+                json.dumps({
+                    "content": df_hasil.loc[idx, "Ulasan"],
+                    "label": correct_label
+                }, ensure_ascii=False)
+            )
+
+        body = "\n".join(feedback_lines)
+        url = f"https://api.github.com/repos/{GITHUB_USER}/{REPO_NAME}/issues"
+        res = requests.post(url, json={
+            "title": "[FEEDBACK] Koreksi Sentimen dari Streamlit",
+            "body": body,
+            "labels": ["feedback"]
+        }, headers={"Authorization": f"token {GITHUB_TOKEN}"})
+
+        if res.status_code == 201:
+            st.success("✅ Feedback berhasil dikirim ke GitHub! Model akan dilatih ulang otomatis.")
+        else:
+            st.error("❌ Gagal mengirim ke GitHub.")    
 
 st.caption("💡 Tips: Setelah menyimpan beberapa koreksi, latih ulang model agar akurasinya meningkat!")
