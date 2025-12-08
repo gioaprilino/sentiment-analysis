@@ -11,6 +11,7 @@ from sklearn.pipeline import Pipeline
 from nltk.corpus import stopwords
 import nltk
 import matplotlib.pyplot as plt
+import requests
 
 # Download stopwords bahasa Indonesia
 nltk.download('stopwords', quiet=True)
@@ -213,5 +214,12 @@ if st.button("🔄 Latih Ulang Model dengan Data Baru"):
             model.fit(X, y)
             joblib.dump(model, MODEL_PATH)
         st.success("✅ Model berhasil dilatih ulang dengan data terbaru!")
+
+def create_github_issue(title, body):
+    url = f"https://api.github.com/repos/{GITHUB_USER}/{REPO_NAME}/issues"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    data = {"title": title, "body": body}
+    response = requests.post(url, json=data, headers=headers)
+    return response.status_code == 201
 
 st.caption("💡 Tips: Setelah menyimpan beberapa koreksi, latih ulang model agar akurasinya meningkat!")

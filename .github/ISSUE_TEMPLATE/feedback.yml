@@ -1,0 +1,29 @@
+name: 📤 Kirim Feedback Sentimen (Label Koreksi)
+about: Bantu tingkatkan akurasi model dengan mengirim ulasan + label yang benar
+title: "[FEEDBACK] Koreksi Sentimen"
+labels: feedback
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Terima kasih telah membantu meningkatkan model AI ini!  
+        Silakan isi ulasan dan label yang benar di bawah.
+  - type: textarea
+    id: reviews
+    attributes:
+      label: Daftar Ulasan & Label yang Benar
+      description: >-
+        Salin-paste output dari aplikasi Streamlit (kolom "Ulasan" dan "Sentimen yang Benar").  
+        Format: satu JSON per baris.
+      placeholder: |
+        {"content": "Ulasan bagus sekali!", "label": "positif"}
+        {"content": "Tidak bisa transfer, kecewa", "label": "negatif"}
+    validations:
+      required: true
+  - type: checkboxes
+    id: agreement
+    attributes:
+      label: Persetujuan
+      options:
+        - label: Saya memahami bahwa data ini akan digunakan untuk melatih ulang model AI.
+          required: true
