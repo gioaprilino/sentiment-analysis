@@ -20,8 +20,7 @@ jobs:
           python-version: '3.10'
 
       - name: 📦 Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: 💬 Ekstrak feedback dari issue body
         run: |
@@ -31,48 +30,15 @@ jobs:
       - name: 🧹 Parse & tambahkan ke dataset
         run: python parse_feedback.py
 
-      - name: 🧠 Latih ulang model
-        run: |
-          python -c "
-          import pandas as pd
-          from sklearn.feature_extraction.text import TfidfVectorizer
-          from sklearn.svm import SVC
-          from sklearn.pipeline import Pipeline
-          import joblib
-          import re
-          from nltk.corpus import stopwords
-          import nltk
-          nltk.download('stopwords', quiet=True)
-          ID_STOPWORDS = set(stopwords.words('indonesian'))
-
-          def preprocess_text(text):
-              if not isinstance(text, str): return ''
-              text = text.lower()
-              text = re.sub(r'[^a-z\s]', '', text)
-              words = [w for w in text.split() if w not in ID_STOPWORDS and len(w) > 2]
-              return ' '.join(words)
-
-          df = pd.read_csv('datasetdana.csv')
-          df = df.dropna(subset=['content', 'pelabelan 3 kelas'])
-          df['clean_content'] = df['content'].apply(preprocess_text)
-          X = df['clean_content']
-          y = df['pelabelan 3 kelas'].str.lower().str.strip()
-
-          model = Pipeline([
-              ('tfidf', TfidfVectorizer(max_features=5000)),
-              ('clf', SVC(kernel='linear', probability=True))
-          ])
-          model.fit(X, y)
-          joblib.dump(model, 'sentiment_model.pkl')
-          print('✅ Model berhasil dilatih ulang.')
-          "
+      - name: 🧠 Latih ulang model (dengan evaluasi & metrik)
+        run: python train_model.py
 
       - name: 📤 Commit dan push perubahan
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add datasetdana.csv sentiment_model.pkl
-          git commit -m "chore: update dataset & model from user feedback (Issue #${{ github.event.issue.number }})"
+          git add datasetdana.csv sentiment_model.pkl metrics.json assets/
+          git commit -m "chore: update dataset, model, dan metrik dari feedback (Issue #${{ github.event.issue.number }})"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
