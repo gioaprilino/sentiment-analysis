@@ -94,22 +94,19 @@ After analysis, you’ll see:
 
 ## 📊 Exploratory Data Analysis (EDA)
 
-Dataset `datasetdana.csv` berisi **1.000+ ulasan** pengguna aplikasi DANA dengan distribusi sentimen:
+Dataset `datasetdana.csv` berisi **900+ ulasan pengguna aplikasi DANA** dengan distribusi sentimen sebagai berikut:
 
-- **Positif**: ~55%
-- **Negatif**: ~35%
-- **Netral**: ~10%
+![Distribusi Label](assets/eda_label_distribution.png)
 
-![Distribusi Label](eda_label_distribution.png)
+- **Negatif**: ~45% — banyak keluhan tentang *sistem sibuk*, *saldo hilang*, dan *CS tidak merespons*
+- **Positif**: ~40% — pujian untuk kemudahan transaksi dan kecepatan
+- **Netral**: ~15% — komentar umum seperti "oke", "coba dulu", atau pertanyaan teknis
 
-Fitur utama:
-- Ulasan dalam **Bahasa Indonesia** (campuran formal & slang)
-- Banyak keluhan teknis: *"sistem sibuk"*, *"gagal transfer"*, *"tidak bisa login"*
-- Ulasan positif umumnya: *"mudah"*, *"cepat"*, *"membantu"*
+Model terbaik dilatih menggunakan **SVM dengan kernel linear** dan divalidasi menggunakan **confusion matrix**:
 
-Model dilatih dengan **TF-IDF + SVM** dan divalidasi menggunakan **confusion matrix**:
+![Confusion Matrix](assets/confusion_matrix.png)
 
-![Confusion Matrix](confusion_matrix.png)
+> 💡 **Catatan**: Distribusi tidak seimbang. Model dioptimalkan menggunakan `f1_weighted` untuk menangani ketimpangan ini.
 
 ---
 

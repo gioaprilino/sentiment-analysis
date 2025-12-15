@@ -150,24 +150,6 @@ if 'hasil' in st.session_state:
         format_func=lambda x: f"{x+1}. {df_hasil.loc[x, 'Ulasan'][:50]}..."
     )
 
-    # Tampilkan metrik evaluasi jika tersedia
-    if os.path.exists('metrics.json'):
-        with open('metrics.json', 'r') as f:
-            metrics = json.load(f)
-        
-        st.subheader("🧪 Metrik Evaluasi Model")
-        col1, col2 = st.columns(2)
-        col1.metric("Akurasi", f"{metrics['accuracy']:.1%}")
-        col2.write("Parameter Terbaik:")
-        for k, v in metrics['best_params'].items():
-            st.text(f"{k}: {v}")
-        
-        # Tampilkan classification report ringkas
-        report = metrics['classification_report']
-        df_report = pd.DataFrame(report).transpose()
-        st.write("**Classification Report:**")
-        st.dataframe(df_report.style.format("{:.2f}"))
-
     # Dropdown untuk label koreksi
     if selected_indices:
         correct_label = st.selectbox("Label yang benar untuk ulasan terpilih:", ["positif", "netral", "negatif"])
@@ -240,6 +222,24 @@ def create_github_issue(title, body):
     data = {"title": title, "body": body}
     response = requests.post(url, json=data, headers=headers)
     return response.status_code == 201
+
+# Tampilkan metrik evaluasi jika tersedia
+if os.path.exists('metrics.json'):
+    with open('metrics.json', 'r', encoding='utf-8') as f:
+        metrics = json.load(f)
+    
+    st.subheader("🧪 Metrik Evaluasi Model")
+    col1, col2 = st.columns(2)
+    col1.metric("Akurasi", f"{metrics['accuracy']:.1%}")
+    
+    col2.write("**Parameter Terbaik:**")
+    for k, v in metrics['best_params'].items():
+        col2.text(f"{k.split('__')[1]}: {v}")
+    
+    # Tampilkan classification report
+    st.write("**Laporan Klasifikasi (per kelas):**")
+    report_df = pd.DataFrame(metrics['classification_report']).transpose()
+    st.dataframe(report_df.style.format(precision=2))
 
 # Kirim feedback ke GitHub Issue
 if st.button("📤 Kirim Feedback ke GitHub (untuk pelatihan ulang)"):
