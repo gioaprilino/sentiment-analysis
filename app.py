@@ -86,10 +86,10 @@ user_input = st.text_input("Masukkan di sini:")
 
 jumlah_ulasan = st.slider(
     "Jumlah ulasan yang akan dianalisis:",
-    min_value=10,
-    max_value=200,
-    value=100,
-    step=10,
+    min_value=500,
+    max_value=2000,
+    value=1000,
+    step=100,
     help="Lebih sedikit = lebih cepat."
 )
 
