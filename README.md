@@ -92,6 +92,27 @@ After analysis, you’ll see:
 
 ---
 
+## 📊 Exploratory Data Analysis (EDA)
+
+Dataset `datasetdana.csv` berisi **1.000+ ulasan** pengguna aplikasi DANA dengan distribusi sentimen:
+
+- **Positif**: ~55%
+- **Negatif**: ~35%
+- **Netral**: ~10%
+
+![Distribusi Label](eda_label_distribution.png)
+
+Fitur utama:
+- Ulasan dalam **Bahasa Indonesia** (campuran formal & slang)
+- Banyak keluhan teknis: *"sistem sibuk"*, *"gagal transfer"*, *"tidak bisa login"*
+- Ulasan positif umumnya: *"mudah"*, *"cepat"*, *"membantu"*
+
+Model dilatih dengan **TF-IDF + SVM** dan divalidasi menggunakan **confusion matrix**:
+
+![Confusion Matrix](confusion_matrix.png)
+
+---
+
 ## Project Structure
 
 ```bash

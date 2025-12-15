@@ -12,6 +12,7 @@ from nltk.corpus import stopwords
 import nltk
 import matplotlib.pyplot as plt
 import requests
+import json
 
 # Download stopwords bahasa Indonesia
 nltk.download('stopwords', quiet=True)
@@ -148,6 +149,24 @@ if 'hasil' in st.session_state:
         options=df_hasil.index.tolist(),
         format_func=lambda x: f"{x+1}. {df_hasil.loc[x, 'Ulasan'][:50]}..."
     )
+
+    # Tampilkan metrik evaluasi jika tersedia
+    if os.path.exists('metrics.json'):
+        with open('metrics.json', 'r') as f:
+            metrics = json.load(f)
+        
+        st.subheader("🧪 Metrik Evaluasi Model")
+        col1, col2 = st.columns(2)
+        col1.metric("Akurasi", f"{metrics['accuracy']:.1%}")
+        col2.write("Parameter Terbaik:")
+        for k, v in metrics['best_params'].items():
+            st.text(f"{k}: {v}")
+        
+        # Tampilkan classification report ringkas
+        report = metrics['classification_report']
+        df_report = pd.DataFrame(report).transpose()
+        st.write("**Classification Report:**")
+        st.dataframe(df_report.style.format("{:.2f}"))
 
     # Dropdown untuk label koreksi
     if selected_indices:
