@@ -10,9 +10,16 @@ from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
 from nltk.corpus import stopwords
 import nltk
-import matplotlib.pyplot as plt
+import altair as alt # Library grafik interaktif bawaan Streamlit
 import requests
 import json
+
+# Konfigurasi Halaman (Harus di paling atas)
+st.set_page_config(
+    page_title="Analisis Sentimen DANA",
+    page_icon="📊",
+    layout="wide" # Menggunakan layout lebar agar lebih lega
+)
 
 # Download stopwords bahasa Indonesia
 nltk.download('stopwords', quiet=True)
@@ -56,12 +63,21 @@ def scrape_playstore_reviews(app_id, count=100):
         st.error(f"⚠️ Gagal mengambil ulasan: {str(e)}")
         return []
 
-# Latih model (jika belum ada)
+# Path File
 MODEL_PATH = 'sentiment_model.pkl'
 DATASET_PATH = 'datasetdana.csv'
+METRICS_PATH = 'metrics.json'
 
+# Load Model (Cached supaya cepat)
+@st.cache_resource
+def load_model():
+    if os.path.exists(MODEL_PATH):
+        return joblib.load(MODEL_PATH)
+    return None
+
+# Fungsi Pelatihan Otomatis jika model tidak ada
 if not os.path.exists(MODEL_PATH) and os.path.exists(DATASET_PATH):
-    with st.spinner("🧠 Melatih model sentimen dari datasetdana.csv..."):
+    with st.spinner("🧠 Sedang melatih model awal..."):
         df = pd.read_csv(DATASET_PATH)
         df = df.dropna(subset=['content', 'pelabelan 3 kelas'])
         df['clean_content'] = df['content'].apply(preprocess_text)
@@ -75,204 +91,272 @@ if not os.path.exists(MODEL_PATH) and os.path.exists(DATASET_PATH):
         model.fit(X, y)
         joblib.dump(model, MODEL_PATH)
 
-# UI Utama
-st.set_page_config(page_title="Analisis Sentimen Play Store", layout="centered")
-st.title("🔍 Analisis Sentimen Ulasan Aplikasi Play Store")
-st.markdown("Masukkan **App ID** atau **Link Play Store**, lalu analisis sentimen ulasan dalam Bahasa Indonesia.")
+# --- UI UTAMA ---
 
-# Input pengguna
-input_type = st.radio("Pilih jenis input:", ("App ID", "Link Play Store"), horizontal=True)
-user_input = st.text_input("Masukkan di sini:")
+st.title("📊 Dashboard Analisis Sentimen Play Store")
+st.markdown("""
+Aplikasi ini menganalisis ulasan aplikasi secara otomatis menggunakan **Machine Learning**.
+Masukkan ID Aplikasi atau Link Play Store untuk memulai.
+""")
 
-jumlah_ulasan = st.slider(
-    "Jumlah ulasan yang akan dianalisis:",
-    min_value=500,
-    max_value=2000,
-    value=1000,
-    step=100,
-    help="Lebih sedikit = lebih cepat."
-)
+# Sidebar untuk Kontrol Input
+with st.sidebar:
+    st.header("⚙️ Konfigurasi")
+    input_type = st.radio("Jenis Input:", ("App ID", "Link Play Store"))
+    user_input = st.text_input("Masukkan ID / Link:", value="id.dana")
+    
+    jumlah_ulasan = st.slider(
+        "Jumlah Ulasan:",
+        min_value=10,
+        max_value=2000,
+        value=500,
+        step=50,
+        help="Semakin banyak ulasan, semakin lama prosesnya."
+    )
+    
+    tombol_analisis = st.button("🚀 Mulai Analisis", type="primary")
+    
+    st.markdown("---")
+    st.markdown("**Menu Admin:**")
+    
+    # Tombol Latih Ulang
+    if st.button("🔄 Latih Ulang Model"):
+        if not os.path.exists(DATASET_PATH):
+            st.error("Dataset tidak ditemukan!")
+        else:
+            with st.spinner("Melatih ulang model dengan data terbaru..."):
+                df = pd.read_csv(DATASET_PATH)
+                df = df.dropna(subset=['content', 'pelabelan 3 kelas'])
+                df['clean_content'] = df['content'].apply(preprocess_text)
+                X = df['clean_content']
+                y = df['pelabelan 3 kelas'].str.lower().str.strip()
 
-if st.button("🚀 Analisis Sentimen"):
+                model = Pipeline([
+                    ('tfidf', TfidfVectorizer(max_features=5000)),
+                    ('clf', SVC(kernel='linear', probability=True))
+                ])
+                model.fit(X, y)
+                joblib.dump(model, MODEL_PATH)
+                # Clear cache agar model baru termuat
+                load_model.clear()
+            st.success("✅ Model berhasil diperbarui!")
+
+# --- LOGIKA UTAMA ---
+
+if tombol_analisis:
     if not user_input.strip():
-        st.warning("Harap isi App ID atau Link Play Store.")
+        st.warning("⚠️ Harap isi App ID atau Link Play Store.")
         st.stop()
 
     app_id = extract_app_id(user_input)
     if not app_id:
         st.stop()
 
-    with st.spinner(f"Mengambil {jumlah_ulasan} ulasan dari Play Store..."):
+    # Scraping Data
+    with st.spinner(f"🔍 Sedang mengambil {jumlah_ulasan} ulasan terbaru..."):
         ulasan = scrape_playstore_reviews(app_id, count=jumlah_ulasan)
 
     if not ulasan:
-        st.error("Tidak ada ulasan yang berhasil diambil.")
+        st.error("❌ Tidak ada ulasan yang berhasil diambil.")
         st.stop()
 
-    # Muat model
-    if not os.path.exists(MODEL_PATH):
-        st.error("Model belum dilatih. Pastikan file `datasetdana.csv` tersedia.")
+    # Load Model
+    model = load_model()
+    if not model:
+        st.error("Model belum siap. Silakan latih ulang di sidebar.")
         st.stop()
-    model = joblib.load(MODEL_PATH)
 
     # Prediksi
     hasil = []
     counts = {'positif': 0, 'netral': 0, 'negatif': 0}
-    for teks in ulasan:
+    
+    progress_bar = st.progress(0)
+    total_ulasan = len(ulasan)
+    
+    for i, teks in enumerate(ulasan):
         clean = preprocess_text(teks)
         pred = model.predict([clean])[0]
-        hasil.append({"Ulasan": teks, "Sentimen": pred})
+        # Hitung confidence score
+        proba = model.predict_proba([clean])[0]
+        confidence = proba.max()
+        
+        hasil.append({
+            "Ulasan": teks, 
+            "Sentimen": pred,
+            "Confidence": confidence
+        })
         if pred in counts:
             counts[pred] += 1
-
-    # Simpan hasil ke session state agar bisa dikoreksi
+        
+        # Update progress bar setiap 10%
+        if i % (total_ulasan // 10 + 1) == 0:
+            progress_bar.progress((i + 1) / total_ulasan)
+            
+    progress_bar.progress(1.0)
+    
+    # Simpan ke session state
     st.session_state['hasil'] = hasil
     st.session_state['counts'] = counts
 
-# Tampilkan hasil jika ada
+# --- TAMPILAN HASIL ---
+
 if 'hasil' in st.session_state:
     hasil = st.session_state['hasil']
     counts = st.session_state['counts']
     df_hasil = pd.DataFrame(hasil)
 
-    st.subheader("📊 Hasil Analisis Sentimen")
+    # 1. KPI Metrics (Angka Besar)
+    st.divider()
+    col1, col2, col3, col4 = st.columns(4)
     
-    # Tambahkan kolom 'selected' untuk multi-select
-    df_hasil['selected'] = False
-
-    # Tampilkan tabel (tanpa kolom 'selected' di tampilan akhir)
-    st.write("Centang ulasan di bawah yang ingin Anda koreksi:")
-
-    # Buat list pilihan
-    selected_indices = st.multiselect(
-        "Pilih nomor ulasan untuk dikoreksi:",
-        options=df_hasil.index.tolist(),
-        format_func=lambda x: f"{x+1}. {df_hasil.loc[x, 'Ulasan'][:50]}..."
-    )
-
-    # Dropdown untuk label koreksi
-    if selected_indices:
-        correct_label = st.selectbox("Label yang benar untuk ulasan terpilih:", ["positif", "netral", "negatif"])
-        if st.button("💾 Simpan Koreksi Terpilih"):
-            # Simpan hanya yang dipilih
-            for idx in selected_indices:
-                teks = df_hasil.loc[idx, 'Ulasan']
-                new_row = pd.DataFrame([{
-                    'userName': 'User Feedback',
-                    'score': None,
-                    'at': pd.Timestamp.now(),
-                    'content': teks,
-                    'pelabelan 3 kelas': correct_label
-                }])
-                new_row.to_csv(DATASET_PATH, mode='a', header=False, index=False)
-            st.success(f"✅ {len(selected_indices)} ulasan berhasil disimpan ke datasetdana.csv!")
-
-    # Tampilkan tabel hasil (tanpa kolom 'selected')
-    st.dataframe(df_hasil[['Ulasan', 'Sentimen']])
-
-    # Visualisasi
-    st.subheader("📈 Distribusi Sentimen")
-    fig, ax = plt.subplots()
-    ax.pie(counts.values(), labels=counts.keys(), autopct='%1.1f%%', startangle=140)
-    ax.axis('equal')
-    st.pyplot(fig)
-
     total = sum(counts.values())
-    st.info(f"**Total ulasan:** {total} | Positif: {counts['positif']} | Netral: {counts['netral']} | Negatif: {counts['negatif']}")
+    
+    with col1:
+        st.metric("Total Ulasan", total)
+    with col2:
+        st.metric("Positif", counts['positif'], delta=f"{(counts['positif']/total)*100:.1f}%", delta_color="normal")
+    with col3:
+        st.metric("Netral", counts['netral'], delta_color="off")
+    with col4:
+        st.metric("Negatif", counts['negatif'], delta=f"-{(counts['negatif']/total)*100:.1f}%", delta_color="inverse")
 
-    # Estimasi keakuratan (berdasarkan confidence score dari SVM)
-    if os.path.exists(MODEL_PATH):
-        model = joblib.load(MODEL_PATH)
-        confidences = []
-        for teks in df_hasil['Ulasan']:
-            clean = preprocess_text(teks)
-            proba = model.predict_proba([clean])[0]
-            confidences.append(proba.max())
-        avg_conf = sum(confidences) / len(confidences)
-        st.metric(
-            label="🔍 Estimasi Keakuratan Rata-Rata",
-            value=f"{avg_conf:.1%}",
-            help="Berdasarkan confidence score model SVM (semakin tinggi, semakin yakin model terhadap prediksinya)"
+    # 2. Grafik & Tabel Berdampingan
+    col_chart, col_table = st.columns([1, 2]) # Grafik 1 bagian, Tabel 2 bagian
+
+    with col_chart:
+        st.subheader("📈 Distribusi Sentimen")
+        
+        # Grafik Donut Interaktif dengan Altair
+        source = pd.DataFrame({
+            'Kategori': list(counts.keys()),
+            'Jumlah': list(counts.values())
+        })
+        
+        # Definisi Warna
+        domain = ['positif', 'netral', 'negatif']
+        range_ = ['#28a745', '#6c757d', '#dc3545'] # Hijau, Abu, Merah
+
+        base = alt.Chart(source).encode(
+            theta=alt.Theta("Jumlah", stack=True)
         )
 
-# Tombol latih ulang model
-st.markdown("---")
-if st.button("🔄 Latih Ulang Model dengan Data Baru"):
-    if not os.path.exists(DATASET_PATH):
-        st.error("File datasetdana.csv tidak ditemukan!")
-    else:
-        with st.spinner("Memuat dataset dan melatih ulang model..."):
-            df = pd.read_csv(DATASET_PATH)
-            df = df.dropna(subset=['content', 'pelabelan 3 kelas'])
-            df['clean_content'] = df['content'].apply(preprocess_text)
-            X = df['clean_content']
-            y = df['pelabelan 3 kelas'].str.lower().str.strip()
+        pie = base.mark_arc(outerRadius=120, innerRadius=80).encode(
+            color=alt.Color("Kategori", scale=alt.Scale(domain=domain, range=range_), legend=alt.Legend(title="Sentimen")),
+            order=alt.Order("Jumlah", sort="descending"),
+            tooltip=["Kategori", "Jumlah", alt.Tooltip("Jumlah", format=".0f")]
+        )
 
-            model = Pipeline([
-                ('tfidf', TfidfVectorizer(max_features=5000)),
-                ('clf', SVC(kernel='linear', probability=True))
-            ])
-            model.fit(X, y)
-            joblib.dump(model, MODEL_PATH)
-        st.success("✅ Model berhasil dilatih ulang dengan data terbaru!")
+        text = base.mark_text(radius=140).encode(
+            text=alt.Text("Jumlah", format=".0f"),
+            order=alt.Order("Jumlah", sort="descending"),
+            color=alt.value("black")  
+        )
 
-def create_github_issue(title, body):
-    url = f"https://api.github.com/repos/{GITHUB_USER}/{REPO_NAME}/issues"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    data = {"title": title, "body": body}
-    response = requests.post(url, json=data, headers=headers)
-    return response.status_code == 201
+        st.altair_chart(pie + text, use_container_width=True)
+        
+        # Tampilkan Estimasi Akurasi
+        avg_conf = df_hasil['Confidence'].mean()
+        st.caption(f"🤖 Tingkat Keyakinan Model Rata-rata: **{avg_conf:.1%}**")
 
-# Tampilkan metrik evaluasi jika tersedia
-if os.path.exists('metrics.json'):
-    with open('metrics.json', 'r', encoding='utf-8') as f:
-        metrics = json.load(f)
-    
-    st.subheader("🧪 Metrik Evaluasi Model")
-    col1, col2 = st.columns(2)
-    col1.metric("Akurasi", f"{metrics['accuracy']:.1%}")
-    
-    col2.write("**Parameter Terbaik:**")
-    for k, v in metrics['best_params'].items():
-        col2.text(f"{k.split('__')[1]}: {v}")
-    
-    # Tampilkan classification report
-    st.write("**Laporan Klasifikasi (per kelas):**")
-    report_df = pd.DataFrame(metrics['classification_report']).transpose()
-    st.dataframe(report_df.style.format(precision=2))
+    with col_table:
+        st.subheader("📝 Detail Ulasan")
+        
+        # Fitur Koreksi
+        st.info("Centang ulasan di bawah untuk mengoreksi sentimen yang salah, lalu klik Simpan.")
+        
+        # Data Editor (Tabel interaktif dengan warna)
+        # Menambahkan kolom boolean untuk seleksi
+        df_display = df_hasil.copy()
+        df_display['Pilih'] = False
+        
+        edited_df = st.data_editor(
+            df_display[['Pilih', 'Sentimen', 'Ulasan']],
+            column_config={
+                "Pilih": st.column_config.CheckboxColumn(
+                    "Koreksi?",
+                    help="Pilih untuk mengoreksi ulasan ini",
+                    default=False,
+                ),
+                "Sentimen": st.column_config.TextColumn(
+                    "Sentimen",
+                    width="medium",
+                    validate="^(positif|netral|negatif)$"
+                ),
+                "Ulasan": st.column_config.TextColumn(
+                    "Isi Ulasan",
+                    width="large"
+                )
+            },
+            disabled=["Ulasan", "Sentimen"], # User tidak edit teks langsung di sini, tapi lewat selectbox di bawah
+            hide_index=True,
+            use_container_width=True,
+            height=400
+        )
 
-# Kirim feedback ke GitHub Issue
-if st.button("📤 Kirim Feedback ke GitHub (untuk pelatihan ulang)"):
-    import requests
-    import json
-    GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
-    GITHUB_USER = st.secrets.get("GITHUB_USER", "")
-    REPO_NAME = st.secrets.get("REPO_NAME", "")
+        # Logika Koreksi
+        selected_rows = edited_df[edited_df['Pilih'] == True]
+        
+        if not selected_rows.empty:
+            st.write(f"**{len(selected_rows)} ulasan dipilih.**")
+            col_corr1, col_corr2 = st.columns([2, 1])
+            with col_corr1:
+                correct_label = st.selectbox("Ubah sentimen menjadi:", ["positif", "netral", "negatif"])
+            with col_corr2:
+                if st.button("💾 Simpan Koreksi"):
+                    for idx, row in selected_rows.iterrows():
+                        teks = row['Ulasan']
+                        new_row = pd.DataFrame([{
+                            'userName': 'User Feedback',
+                            'score': None,
+                            'at': pd.Timestamp.now(),
+                            'content': teks,
+                            'pelabelan 3 kelas': correct_label
+                        }])
+                        # Append ke CSV tanpa memuat ulang seluruh file besar
+                        new_row.to_csv(DATASET_PATH, mode='a', header=False, index=False)
+                    
+                    st.success(f"✅ Berhasil menyimpan {len(selected_rows)} data baru!")
+                    st.rerun()
 
-    if not all([GITHUB_TOKEN, GITHUB_USER, REPO_NAME]):
-        st.error("GitHub Secrets belum dikonfigurasi.")
-    else:
-        # Ambil data koreksi (misal: dari session state)
-        feedback_lines = []
-        for idx in selected_indices:
-            feedback_lines.append(
-                json.dumps({
-                    "content": df_hasil.loc[idx, "Ulasan"],
-                    "label": correct_label
-                }, ensure_ascii=False)
-            )
+    # --- BAGIAN FEEDBACK GITHUB (Opsional) ---
+    st.divider()
+    with st.expander("🛠️ Kirim Laporan ke Developer (GitHub Issues)"):
+        st.write("Jika menemukan banyak kesalahan prediksi, Anda bisa mengirim laporan ini ke GitHub repo.")
+        if st.button("📤 Kirim Laporan Feedback"):
+            GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
+            GITHUB_USER = st.secrets.get("GITHUB_USER", "")
+            REPO_NAME = st.secrets.get("REPO_NAME", "")
+            
+            if not all([GITHUB_TOKEN, GITHUB_USER, REPO_NAME]):
+                st.error("GitHub Secrets belum dikonfigurasi di `.streamlit/secrets.toml`")
+            elif selected_rows.empty:
+                st.warning("Pilih dulu ulasan yang ingin dilaporkan di tabel atas.")
+            else:
+                feedback_body = []
+                for _, row in selected_rows.iterrows():
+                    feedback_body.append(json.dumps({
+                        "text": row['Ulasan'],
+                        "corrected_label": correct_label
+                    }, ensure_ascii=False))
+                
+                body_str = "\n".join(feedback_body)
+                url = f"https://api.github.com/repos/{GITHUB_USER}/{REPO_NAME}/issues"
+                res = requests.post(url, json={
+                    "title": "[FEEDBACK] Koreksi Sentimen User",
+                    "body": body_str,
+                    "labels": ["feedback", "improvement"]
+                }, headers={"Authorization": f"token {GITHUB_TOKEN}"})
 
-        body = "\n".join(feedback_lines)
-        url = f"https://api.github.com/repos/{GITHUB_USER}/{REPO_NAME}/issues"
-        res = requests.post(url, json={
-            "title": "[FEEDBACK] Koreksi Sentimen dari Streamlit",
-            "body": body,
-            "labels": ["feedback"]
-        }, headers={"Authorization": f"token {GITHUB_TOKEN}"})
+                if res.status_code == 201:
+                    st.success("Laporan terkirim ke GitHub!")
+                else:
+                    st.error(f"Gagal mengirim. Status: {res.status_code}")
 
-        if res.status_code == 201:
-            st.success("✅ Feedback berhasil dikirim ke GitHub! Model akan dilatih ulang otomatis.")
-        else:
-            st.error("❌ Gagal mengirim ke GitHub.")    
-
-st.caption("💡 Tips: Setelah menyimpan beberapa koreksi, latih ulang model agar akurasinya meningkat!")
+# Tampilkan metrik evaluasi model di sidebar bawah
+if os.path.exists(METRICS_PATH):
+    with st.sidebar:
+        st.markdown("---")
+        st.caption("📊 Performa Model Saat Ini")
+        with open(METRICS_PATH, 'r') as f:
+            metrics = json.load(f)
+        st.write(f"Akurasi Test: **{metrics['accuracy']:.1%}**")
