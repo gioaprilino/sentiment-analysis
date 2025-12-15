@@ -167,10 +167,14 @@ with st.sidebar:
                     # Menampilkan tabel kecil
                     st.dataframe(
                         report_df.style.format(precision=2), 
-                        width='stetch',
+                        use_container_width=True,
                     )
         except Exception as e:
             st.caption("Gagal memuat metrik.")
+    
+    # Kredit di Sidebar (Bawah)
+    st.markdown("---")
+    st.caption("Developed by:\n**Aulia Randu Arini**\n**Gio Aprilino**\n**Abdul Hanif**")
 
 # --- 4. LOGIKA UTAMA APLIKASI ---
 
@@ -289,7 +293,7 @@ if 'hasil' in st.session_state:
             color=alt.value("black")  
         )
 
-        st.altair_chart(pie + text, width='stretch')
+        st.altair_chart(pie + text, use_container_width=True)
         
         # Tampilkan Estimasi Akurasi
         if 'Confidence' in df_hasil.columns:
@@ -327,7 +331,7 @@ if 'hasil' in st.session_state:
             },
             disabled=["Ulasan", "Sentimen"], # Edit teks via selectbox di bawah
             hide_index=True,
-            width='stretch',
+            use_container_width=True,
             height=400
         )
 
@@ -389,3 +393,24 @@ if 'hasil' in st.session_state:
                     st.success("Laporan terkirim ke GitHub!")
                 else:
                     st.error(f"Gagal mengirim. Status: {res.status_code}")
+
+# --- 7. FOOTER CREDIT ---
+st.markdown("---")
+st.markdown(
+    """
+    <style>
+    .footer {
+        text-align: center;
+        font-size: 14px;
+        color: #888;
+        margin-top: 30px;
+        margin-bottom: 20px;
+    }
+    </style>
+    <div class="footer">
+        Developed with ❤️ by <br>
+        <b>Aulia Randu Arini</b> • <b>Gio Aprilino</b> • <b>Abdul Hanif</b>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
