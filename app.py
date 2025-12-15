@@ -167,7 +167,7 @@ with st.sidebar:
                     # Menampilkan tabel kecil
                     st.dataframe(
                         report_df.style.format(precision=2), 
-                        use_container_width=True
+                        width='stetch',
                     )
         except Exception as e:
             st.caption("Gagal memuat metrik.")
@@ -289,11 +289,14 @@ if 'hasil' in st.session_state:
             color=alt.value("black")  
         )
 
-        st.altair_chart(pie + text, use_container_width=True)
+        st.altair_chart(pie + text, width='stretch')
         
         # Tampilkan Estimasi Akurasi
-        avg_conf = df_hasil['Confidence'].mean()
-        st.caption(f"🤖 Tingkat Keyakinan Model Rata-rata: **{avg_conf:.1%}**")
+        if 'Confidence' in df_hasil.columns:
+            avg_conf = df_hasil['Confidence'].mean()
+            st.caption(f"🤖 Tingkat Keyakinan Model Rata-rata: **{avg_conf:.1%}**")
+        else:
+            st.caption("🤖 Confidence score tidak tersedia untuk data ini.")
 
     with col_table:
         st.subheader("📝 Detail Ulasan")
@@ -324,7 +327,7 @@ if 'hasil' in st.session_state:
             },
             disabled=["Ulasan", "Sentimen"], # Edit teks via selectbox di bawah
             hide_index=True,
-            use_container_width=True,
+            width='stretch',
             height=400
         )
 
