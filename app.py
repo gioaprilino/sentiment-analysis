@@ -10,22 +10,24 @@ from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
 from nltk.corpus import stopwords
 import nltk
-import altair as alt # Library grafik interaktif bawaan Streamlit
+import altair as alt # Library grafik interaktif
 import requests
 import json
 
-# Konfigurasi Halaman (Harus di paling atas)
+# --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(
     page_title="Analisis Sentimen DANA",
     page_icon="📊",
-    layout="wide" # Menggunakan layout lebar agar lebih lega
+    layout="wide" # Menggunakan layout lebar
 )
+
+# --- 2. SETUP & FUNGSI BANTUAN ---
 
 # Download stopwords bahasa Indonesia
 nltk.download('stopwords', quiet=True)
 ID_STOPWORDS = set(stopwords.words('indonesian'))
 
-# Fungsi preprocessing
+# Fungsi preprocessing teks
 def preprocess_text(text):
     if not isinstance(text, str):
         return ""
@@ -34,7 +36,7 @@ def preprocess_text(text):
     words = [w for w in text.split() if w not in ID_STOPWORDS and len(w) > 2]
     return ' '.join(words)
 
-# Ekstrak App ID dari URL
+# Ekstrak App ID dari URL Play Store
 def extract_app_id(url_or_id):
     if 'play.google.com' in url_or_id:
         parsed = urllib.parse.urlparse(url_or_id)
@@ -48,7 +50,7 @@ def extract_app_id(url_or_id):
     else:
         return url_or_id.strip()
 
-# Scrape ulasan
+# Scrape ulasan dari Google Play
 def scrape_playstore_reviews(app_id, count=100):
     try:
         result, _ = reviews(
@@ -68,14 +70,14 @@ MODEL_PATH = 'sentiment_model.pkl'
 DATASET_PATH = 'datasetdana.csv'
 METRICS_PATH = 'metrics.json'
 
-# Load Model (Cached supaya cepat)
+# Load Model (Cached supaya performa cepat)
 @st.cache_resource
 def load_model():
     if os.path.exists(MODEL_PATH):
         return joblib.load(MODEL_PATH)
     return None
 
-# Fungsi Pelatihan Otomatis jika model tidak ada
+# Pelatihan Otomatis jika model belum ada
 if not os.path.exists(MODEL_PATH) and os.path.exists(DATASET_PATH):
     with st.spinner("🧠 Sedang melatih model awal..."):
         df = pd.read_csv(DATASET_PATH)
@@ -91,15 +93,8 @@ if not os.path.exists(MODEL_PATH) and os.path.exists(DATASET_PATH):
         model.fit(X, y)
         joblib.dump(model, MODEL_PATH)
 
-# --- UI UTAMA ---
+# --- 3. SIDEBAR (INPUT & ADMIN) ---
 
-st.title("📊 Dashboard Analisis Sentimen Play Store")
-st.markdown("""
-Aplikasi ini menganalisis ulasan aplikasi secara otomatis menggunakan **Machine Learning**.
-Masukkan ID Aplikasi atau Link Play Store untuk memulai.
-""")
-
-# Sidebar untuk Kontrol Input
 with st.sidebar:
     st.header("⚙️ Konfigurasi")
     input_type = st.radio("Jenis Input:", ("App ID", "Link Play Store"))
@@ -125,23 +120,65 @@ with st.sidebar:
             st.error("Dataset tidak ditemukan!")
         else:
             with st.spinner("Melatih ulang model dengan data terbaru..."):
+                # Load ulang dataset
                 df = pd.read_csv(DATASET_PATH)
                 df = df.dropna(subset=['content', 'pelabelan 3 kelas'])
                 df['clean_content'] = df['content'].apply(preprocess_text)
                 X = df['clean_content']
                 y = df['pelabelan 3 kelas'].str.lower().str.strip()
 
+                # Pipeline pelatihan
                 model = Pipeline([
                     ('tfidf', TfidfVectorizer(max_features=5000)),
                     ('clf', SVC(kernel='linear', probability=True))
                 ])
                 model.fit(X, y)
                 joblib.dump(model, MODEL_PATH)
-                # Clear cache agar model baru termuat
+                
+                # Hapus cache agar model baru termuat
                 load_model.clear()
             st.success("✅ Model berhasil diperbarui!")
 
-# --- LOGIKA UTAMA ---
+    # --- FITUR LAPORAN KLASIFIKASI (YANG DIKEMBALIKAN) ---
+    if os.path.exists(METRICS_PATH):
+        st.markdown("---")
+        st.caption("📊 Performa Model Saat Ini")
+        try:
+            with open(METRICS_PATH, 'r') as f:
+                metrics = json.load(f)
+            
+            # Tampilkan Akurasi Utama
+            st.metric("Akurasi Test", f"{metrics['accuracy']:.1%}")
+            
+            # Tampilkan Detail dalam Expander (Buka/Tutup) agar rapi
+            with st.expander("📝 Lihat Detail Klasifikasi"):
+                st.write("**Parameter Terbaik:**")
+                if 'best_params' in metrics:
+                    for k, v in metrics['best_params'].items():
+                        # Membersihkan nama parameter agar lebih enak dibaca
+                        param_name = k.split('__')[1] if '__' in k else k
+                        st.caption(f"- {param_name}: `{v}`")
+                
+                st.divider()
+                st.write("**Laporan per Kelas:**")
+                if 'classification_report' in metrics:
+                    # Membuat dataframe dari classification_report
+                    report_df = pd.DataFrame(metrics['classification_report']).transpose()
+                    # Menampilkan tabel kecil
+                    st.dataframe(
+                        report_df.style.format(precision=2), 
+                        use_container_width=True
+                    )
+        except Exception as e:
+            st.caption("Gagal memuat metrik.")
+
+# --- 4. LOGIKA UTAMA APLIKASI ---
+
+st.title("📊 Dashboard Analisis Sentimen Play Store")
+st.markdown("""
+Aplikasi ini menganalisis ulasan aplikasi secara otomatis menggunakan **Machine Learning**.
+Masukkan ID Aplikasi atau Link Play Store di sidebar untuk memulai.
+""")
 
 if tombol_analisis:
     if not user_input.strip():
@@ -166,7 +203,7 @@ if tombol_analisis:
         st.error("Model belum siap. Silakan latih ulang di sidebar.")
         st.stop()
 
-    # Prediksi
+    # Prediksi Sentimen
     hasil = []
     counts = {'positif': 0, 'netral': 0, 'negatif': 0}
     
@@ -188,17 +225,17 @@ if tombol_analisis:
         if pred in counts:
             counts[pred] += 1
         
-        # Update progress bar setiap 10%
+        # Update progress bar
         if i % (total_ulasan // 10 + 1) == 0:
             progress_bar.progress((i + 1) / total_ulasan)
             
     progress_bar.progress(1.0)
     
-    # Simpan ke session state
+    # Simpan hasil ke session state
     st.session_state['hasil'] = hasil
     st.session_state['counts'] = counts
 
-# --- TAMPILAN HASIL ---
+# --- 5. TAMPILAN HASIL (METRIK & GRAFIK) ---
 
 if 'hasil' in st.session_state:
     hasil = st.session_state['hasil']
@@ -221,7 +258,7 @@ if 'hasil' in st.session_state:
         st.metric("Negatif", counts['negatif'], delta=f"-{(counts['negatif']/total)*100:.1f}%", delta_color="inverse")
 
     # 2. Grafik & Tabel Berdampingan
-    col_chart, col_table = st.columns([1, 2]) # Grafik 1 bagian, Tabel 2 bagian
+    col_chart, col_table = st.columns([1, 2]) # Rasio lebar 1:2
 
     with col_chart:
         st.subheader("📈 Distribusi Sentimen")
@@ -232,9 +269,9 @@ if 'hasil' in st.session_state:
             'Jumlah': list(counts.values())
         })
         
-        # Definisi Warna
+        # Definisi Warna (Hijau, Abu, Merah)
         domain = ['positif', 'netral', 'negatif']
-        range_ = ['#28a745', '#6c757d', '#dc3545'] # Hijau, Abu, Merah
+        range_ = ['#28a745', '#6c757d', '#dc3545'] 
 
         base = alt.Chart(source).encode(
             theta=alt.Theta("Jumlah", stack=True)
@@ -261,11 +298,9 @@ if 'hasil' in st.session_state:
     with col_table:
         st.subheader("📝 Detail Ulasan")
         
-        # Fitur Koreksi
-        st.info("Centang ulasan di bawah untuk mengoreksi sentimen yang salah, lalu klik Simpan.")
+        st.info("Centang ulasan di bawah untuk mengoreksi sentimen, lalu klik 'Simpan Koreksi'.")
         
-        # Data Editor (Tabel interaktif dengan warna)
-        # Menambahkan kolom boolean untuk seleksi
+        # Data Editor (Tabel interaktif)
         df_display = df_hasil.copy()
         df_display['Pilih'] = False
         
@@ -287,13 +322,13 @@ if 'hasil' in st.session_state:
                     width="large"
                 )
             },
-            disabled=["Ulasan", "Sentimen"], # User tidak edit teks langsung di sini, tapi lewat selectbox di bawah
+            disabled=["Ulasan", "Sentimen"], # Edit teks via selectbox di bawah
             hide_index=True,
             use_container_width=True,
             height=400
         )
 
-        # Logika Koreksi
+        # Logika Penyimpanan Koreksi
         selected_rows = edited_df[edited_df['Pilih'] == True]
         
         if not selected_rows.empty:
@@ -312,16 +347,16 @@ if 'hasil' in st.session_state:
                             'content': teks,
                             'pelabelan 3 kelas': correct_label
                         }])
-                        # Append ke CSV tanpa memuat ulang seluruh file besar
+                        # Append ke CSV
                         new_row.to_csv(DATASET_PATH, mode='a', header=False, index=False)
                     
-                    st.success(f"✅ Berhasil menyimpan {len(selected_rows)} data baru!")
+                    st.success(f"✅ Berhasil menyimpan {len(selected_rows)} data koreksi!")
                     st.rerun()
 
-    # --- BAGIAN FEEDBACK GITHUB (Opsional) ---
+    # --- 6. BAGIAN FEEDBACK (OPSIONAL) ---
     st.divider()
     with st.expander("🛠️ Kirim Laporan ke Developer (GitHub Issues)"):
-        st.write("Jika menemukan banyak kesalahan prediksi, Anda bisa mengirim laporan ini ke GitHub repo.")
+        st.write("Jika menemukan banyak kesalahan prediksi, kirim laporan ini untuk perbaikan model.")
         if st.button("📤 Kirim Laporan Feedback"):
             GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
             GITHUB_USER = st.secrets.get("GITHUB_USER", "")
@@ -351,12 +386,3 @@ if 'hasil' in st.session_state:
                     st.success("Laporan terkirim ke GitHub!")
                 else:
                     st.error(f"Gagal mengirim. Status: {res.status_code}")
-
-# Tampilkan metrik evaluasi model di sidebar bawah
-if os.path.exists(METRICS_PATH):
-    with st.sidebar:
-        st.markdown("---")
-        st.caption("📊 Performa Model Saat Ini")
-        with open(METRICS_PATH, 'r') as f:
-            metrics = json.load(f)
-        st.write(f"Akurasi Test: **{metrics['accuracy']:.1%}**")
